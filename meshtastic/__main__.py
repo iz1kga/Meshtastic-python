@@ -10,7 +10,9 @@ import traceback
 import pkg_resources
 from datetime import datetime
 import timeago
+from OSGridConverter import latlong2grid
 from easy_table import EasyTable
+
 
 """We only import the tunnel code if we are on a platform that can run it"""
 have_tunnel = platform.system() == 'Linux'
@@ -140,6 +142,12 @@ def setRouter(interface, on):
 def formatFloat(value, formatStr="{:.2f}", unit="", default="N/A"):
     return formatStr.format(value)+unit if value else default
 
+#Returns OSG coordinates
+def getOSG(lat, lon, default="N/A"):
+    print(lat)
+    print(lon)
+    return latlong2grid(lat,lon) if lat else default
+
 #Returns Last Heard Time in human readable format
 def getLH(ts, default="N/A"):
     return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if ts else default
@@ -149,7 +157,7 @@ def getTimeAgo(ts, default="N/A"):
     return timeago.format(datetime.fromtimestamp(ts), datetime.now()) if ts else default
 
 #Print Nodes
-def printNodes(nodes):
+def printNodes(nodes, osg=False):
     #Create the table and define the structure
     table = EasyTable("Nodes")
     table.setCorners("/", "\\", "\\", "/")
@@ -163,13 +171,18 @@ def printNodes(nodes):
         lat=formatFloat(node['position'].get("latitude"), "{:.4f}", "°")
         lon=formatFloat(node['position'].get("longitude"), "{:.4f}", "°")
         alt=formatFloat(node['position'].get("altitude"), "{:.0f}", " m")
+        if osg:
+            pos = getOSG(node['position'].get("latitude"),node['position'].get("longitude"))
+        else:
+            pos = lat+", "+lon+", "+alt
+
         batt=formatFloat(node['position'].get("batteryLevel"), "{:.2f}", "%")
         snr=formatFloat(node.get("snr"), "{:.2f}", " dB")
         LH= getLH(node['position'].get("time"))
         timeAgo = getTimeAgo(node['position'].get("time"))
         tableData.append({"N":i, "User":node['user']['longName'],
                           "AKA":node['user']['shortName'], "ID":node['user']['id'],
-                          "Position":lat+", "+lon+", "+alt,
+                          "Position":pos,
                           "Battery":batt, "SNR":snr,
                           "LastHeard":LH, "Since":timeAgo})
         i = i+1
@@ -210,7 +223,6 @@ def onConnected(interface):
                 print(f"Fixing longitude at {lon} degrees")
 
             print("Setting device time/position")
-            # can include lat/long/alt etc: latitude = 37.5, longitude = -122.1
             interface.sendPosition(lat, lon, alt, time)
             interface.writeConfig()
 
@@ -251,7 +263,7 @@ def onConnected(interface):
             if args.gpiowatch:
                 bitmask = int(args.gpiowatch)
                 print(f"Watching GPIO mask 0x{bitmask:x} from {args.dest}")
-                rhc.watchGPIOs(args.dest, bitmask)                
+                rhc.watchGPIOs(args.dest, bitmask)
 
         if args.set or args.setstr or args.setchan or args.setch_longslow or args.setch_shortfast \
                     or args.seturl or args.router != None:
@@ -323,6 +335,10 @@ def onConnected(interface):
             closeNow = True
             printNodes(interface.nodes.values())
 
+        if args.nodesOSG:
+            closeNow = True
+            printNodes(interface.nodes.values(), True)
+
         if args.qr:
             closeNow = True
             print(f"Channel URL {interface.channelURL}")
@@ -365,7 +381,7 @@ def common():
         args.destOrAll = "^all"
 
     if not args.seriallog:
-        if args.info or args.nodes or args.set or args.seturl or args.setowner or args.setlat or args.setlon or \
+        if args.info or args.nodes or args.nodesOSG or args.set or args.seturl or args.setowner or args.setlat or args.setlon or \
                 args.settime or \
                 args.setch_longslow or args.setch_shortfast or args.setstr or args.setchan or args.sendtext or \
                 args.router != None or args.qr:
@@ -416,7 +432,10 @@ def initParser():
     parser.add_argument("--info", help="Read and display the radio config information",
                         action="store_true")
 
-    parser.add_argument("--nodes", help="Print Node List in a pretty formatted table", 
+    parser.add_argument("--nodes", help="Print Node List in a pretty formatted table",
+                        action="store_true")
+
+    parser.add_argument("--nodesOSG", help="Print Node List with OSG coordinates",
                         action="store_true")
 
     parser.add_argument("--qr", help="Display the QR code that corresponds to the current channel",
